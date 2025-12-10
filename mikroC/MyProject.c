@@ -48,7 +48,7 @@ const char msg_wrong[] = "Wrong Password";
 const char msg_tries[] = "Tries Left: ";
 const char msg_admin_mode[] = "ADMIN MODE";
 const char msg_enter_admin[] = "Enter ADMIN Key:";
-const char msg_elhefnawy[] = "ELHEFNAWY";
+const char msg_elhefnawy[] = "ADMIN";
 const char msg_opt1[] = "1- ADD USER";
 const char msg_opt2[] = "2- DELETE USER";
 const char msg_locked[] = "SYSTEM LOCKED";
@@ -76,7 +76,7 @@ enum SystemState
     STATE_LOCKED
 };
 
-enum SystemState current_state = STATE_LOCKED;
+enum SystemState current_state = STATE_LOGIN;
 
 char get_mapped_key()
 {
@@ -108,6 +108,28 @@ char get_mapped_key()
     return 0;
 }
 
+int read_password()
+{
+    enum SystemState toggleState = 1 - current_state;
+    memset(password_input, 0, sizeof password_input);
+    Lcd_Chr(2, 1, ' ');
+    for (i = 0; i < 4; i++)
+    {
+        do
+        {
+            key = get_mapped_key();
+        } while (key == 0);
+
+        if (key == 'M')
+        {
+            current_state = toggleState;
+            return -1;
+        }
+        password_input[i] = key;
+        Lcd_Chr_Cp('*');
+    }
+}
+
 void add_user()
 {
     i = 0;
@@ -120,22 +142,8 @@ void add_user()
     Lcd_Out_Const(1, 1, msg_new_user);
     Lcd_Out_Const(2, 1, msg_empty);
 
-    memset(password_input, 0, 5);
-    for (i = 0; i < 4; i++)
-    {
-        do
-        {
-            key = get_mapped_key();
-        } while (key == 0);
-
-        if (key == 'M')
-        {
-            current_state = STATE_ADMIN;
-            return;
-        }
-        password_input[i] = key;
-        Lcd_Chr_Cp('*');
-    }
+    if (read_password() == -1)
+        return;
 
     for (slot = 0; slot < 64; slot++)
     {
@@ -162,7 +170,7 @@ void add_user()
     for (i = 0; i < 4; i++)
     {
         EEPROM_Write(addr + i, password_input[i]);
-        delay_ms(20);
+        delay_ms(160);
     }
     ByteToStr(id, str);
     Ltrim(str);
@@ -203,7 +211,7 @@ void delete_user()
     addr = id * 4;
     EEPROM_Write(addr, 0xff);
     Lcd_Out_Const(1, 1, msg_deleting);
-    delay_ms(20);
+    delay_ms(160);
     Lcd_Out_Const(1, 1, msg_deleted);
     delay_ms(1000);
 }
@@ -216,35 +224,22 @@ void login_mode()
     match_found = 0;
 
     Lcd_Cmd(_LCD_CLEAR);
+    portC.f0 = 0;
     portC.f1 = 0;
     portC.f2 = 1;
     if (!user)
     {
         Lcd_Out_Const(1, 1, msg_user_mode);
-        delay_ms(200);
+        delay_ms(2000);
         user = 1;
         admin = 0;
     }
     Lcd_Out_Const(1, 1, msg_enter_key);
 
-    memset(password_input, 0, sizeof password_input);
     memset(stored_pass, 0, sizeof stored_pass);
 
-    for (i = 0; i < 4; i++)
-    {
-        do
-        {
-            key = get_mapped_key();
-        } while (key == 0);
-
-        if (key == 'M')
-        {
-            current_state = STATE_ADMIN;
-            return;
-        }
-        password_input[i] = key;
-        Lcd_Chr_Cp('*');
-    }
+    if (read_password() == -1)
+        return;
 
     for (slot = 0; slot < 64; slot++)
     {
@@ -271,9 +266,10 @@ void login_mode()
         Lcd_Cmd(_LCD_CLEAR);
         Lcd_Out_Const(1, 2, msg_welcome);
         Lcd_Out_Const(2, 3, msg_access);
+        portC.f0 = 1;
         portC.f1 = 1;
         portC.f2 = 0;
-        delay_ms(200);
+        delay_ms(5000);
         tries_left = 3;
     }
     else
@@ -292,7 +288,7 @@ void login_mode()
         ByteToStr(tries_left, str);
         Ltrim(str);
         Lcd_out_cp(str);
-        delay_ms(200);
+        delay_ms(2000);
     }
 }
 
@@ -300,34 +296,36 @@ void admin_mode()
 {
     i = 0;
     Lcd_Cmd(_LCD_CLEAR);
+    portC.f0 = 0;
     portC.f1 = 0;
     portC.f2 = 0;
     if (!admin)
     {
         Lcd_Out_Const(1, 1, msg_admin_mode);
-        delay_ms(100);
+        delay_ms(1000);
         admin = 1;
         user = 0;
+        Lcd_Out_Const(1, 1, msg_enter_admin);
+        Lcd_Out_Const(2, 1, msg_empty);
+
+        if (read_password() == -1)
+            return;
     }
-
-    Lcd_Out_Const(1, 1, msg_enter_admin);
-    Lcd_Out_Const(2, 1, msg_empty);
-    memset(password_input, 0, sizeof password_input);
-
-    for (i = 0; i < 4; i++)
+    else
     {
+        Lcd_Out_Const(1, 1, msg_opt1);
+        Lcd_Out_Const(2, 1, msg_opt2);
         do
         {
             key = get_mapped_key();
         } while (key == 0);
-
-        if (key == 'M')
-        {
+        if (key == '1')
+            add_user();
+        else if (key == '2')
+            delete_user();
+        else if (key == 'M')
             current_state = STATE_LOGIN;
-            return;
-        }
-        password_input[i] = key;
-        Lcd_Chr_Cp('*');
+        return;
     }
 
     if (strcmp(password_input, ADMIN_KEY) == 0)
@@ -335,7 +333,7 @@ void admin_mode()
         Lcd_Cmd(_LCD_CLEAR);
         Lcd_Out_Const(1, 2, msg_welcome);
         Lcd_Out_Const(2, 3, msg_elhefnawy);
-        delay_ms(200);
+        delay_ms(1000);
         tries_left = 3;
         Lcd_Out_Const(1, 1, msg_opt1);
         Lcd_Out_Const(2, 1, msg_opt2);
@@ -345,8 +343,11 @@ void admin_mode()
         } while (key == 0);
         if (key == '1')
             add_user();
-        else
+        else if (key == '2')
             delete_user();
+        else if (key == 'M')
+            current_state = STATE_LOGIN;
+        return;
     }
     else
     {
@@ -364,10 +365,8 @@ void admin_mode()
         ByteToStr(tries_left, str);
         Ltrim(str);
         Lcd_out_cp(str);
-        delay_ms(200);
+        delay_ms(1000);
     }
-
-    current_state = STATE_LOGIN;
 }
 
 void suspended_mode()
@@ -376,7 +375,8 @@ void suspended_mode()
     Lcd_Cmd(_LCD_CLEAR);
     Lcd_Out_Const(1, 1, msg_locked);
     Lcd_Out_Const(2, 1, msg_timer);
-    portc.f0 = 1;
+    portc.f0 = 0;
+    portC.f1 = 0;
     portc.f2 = 1;
     seconds = 60;
 
@@ -397,9 +397,9 @@ void suspended_mode()
         }
         seconds--;
     }
+    tries_left = 3;
     current_state = STATE_LOGIN;
 }
-
 // --- MAIN FUNCTION ---
 void main()
 {
@@ -418,7 +418,7 @@ void main()
     Lcd_Cmd(_LCD_CLEAR);
 
     Lcd_Out_Const(1, 1, msg_main_welcome);
-    delay_ms(200);
+    delay_ms(1000);
 
     while (1)
     {
